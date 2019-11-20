@@ -1,0 +1,194 @@
+using System; 
+using System.IO;
+using System.Text;
+using System.Threading;
+using System.Text.RegularExpressions;
+using System.Web;
+
+namespace App { 
+
+	class Tail { 
+		static void Main(string[] args) { 
+			Console.WriteLine("Start App.Tail");
+			Directory.Delete(@"C:\Users\m\AppData\Local\Temp\TempResults\Report", true);
+			String fpath=@"C:\Users\m\AppData\Local\Temp\TempResults\Report\run_results.xml";
+			WaitForFile(fpath,1);
+			TailFile2(fpath);
+		} 
+				
+		public static void TailFile(string filePath)
+		{
+			var initialFileSize = new FileInfo(filePath).Length;
+			var lastReadLength = initialFileSize-1024;
+			if (lastReadLength < 0) lastReadLength = 0;
+
+			while (true)
+			{
+				try
+				{
+					var fileSize = new FileInfo(filePath).Length;
+					if (fileSize > lastReadLength)
+					{
+						using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+						{
+							fs.Seek(lastReadLength, SeekOrigin.Begin);
+							var buffer = new byte[1024];
+							while (true){
+								var bytesRead = fs.Read(buffer, 0, buffer.Length);
+								lastReadLength += bytesRead;
+								if (bytesRead == 0)
+									break;
+								var text = ASCIIEncoding.ASCII.GetString(buffer, 0, bytesRead);
+								
+								int pFrom = text.IndexOf("<Name>") + "<Name>".Length;
+								int pTo = text.LastIndexOf("</Result>");
+								string result = text.Substring(pFrom, pTo - pFrom);
+								Console.WriteLine(result);
+								Console.WriteLine("-------------------------------------------");
+								
+							}
+						}
+					}
+				}
+				catch { }
+
+				Thread.Sleep(1000);
+			}
+		}
+		
+		public static void TailFile1(string filePath)
+		{
+			var wh = new AutoResetEvent(false);
+			var fsw = new FileSystemWatcher(".");
+			fsw.Filter = filePath;
+			fsw.EnableRaisingEvents = true;
+			fsw.Changed += (s,e) => wh.Set();
+			
+			var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+			using (var sr = new StreamReader(fs))
+			{
+				Console.WriteLine("=======================================");
+				var s = "";
+				string para="";
+
+				while (true){
+					s =  HttpUtility.HtmlDecode(sr.ReadLine());
+					//s =  sr.ReadLine();
+					if (s != null){
+						
+						if ((s.IndexOf("<Name>") != -1) && (s.IndexOf("<Name><![CDATA") == -1)){
+							para="";
+							para +=s;
+						}
+						if (s.IndexOf("<ErrorText>") != -1){
+							para +=s;
+						}
+						if (s.IndexOf("<Description>") != -1){
+							para +=s;
+						}
+						if (s.IndexOf("<Result>") != -1){
+							para +=s;
+							//string para1 = para.Replace("\r\n", replaceWith).Replace("\n", replaceWith).Replace("\r", replaceWith);
+							string noHTML = HttpUtility.HtmlDecode(para);
+							//string noHTMLNormalised = Regex.Replace(noHTML, @"\s{2,}", " ");
+							noHTML = noHTML.Replace("<br>","").Replace("<br/>","");
+							Console.WriteLine(noHTML);
+							Console.WriteLine("-------------------------------------------");
+						}
+						//Console.WriteLine("-------------------------------------------");
+						if (s.IndexOf("</Results>") != -1){
+							Console.WriteLine("-----END------");
+							break;
+						}
+					}else{
+						wh.WaitOne(1000);
+					}
+				}
+				
+			}
+			wh.Close();
+		}
+		
+		public static void TailFile2(string filePath){
+			using(StreamReader reader = new StreamReader(new FileStream(filePath,FileMode.Open,FileAccess.Read,FileShare.ReadWrite))){
+				//start at the end of the file
+				long lastMaxOffset = 0;
+				Console.WriteLine("lastMaxOffset: "+lastMaxOffset);
+				while (true){
+					
+					//if the file size has not changed, idle
+					long currentLength=reader.BaseStream.Length;
+					//Console.WriteLine("currentLength: "+lastMaxOffset);
+					if (currentLength == lastMaxOffset){
+						continue;
+					}
+					//seek to the last max offset
+					reader.BaseStream.Seek(lastMaxOffset, SeekOrigin.Begin);
+
+					//read out of the file until the EOF
+					string line = "";
+					while((line = reader.ReadLine())!= null ){						
+						//int pFrom = line.IndexOf("<Name>") + "<Name>".Length;
+						//int pTo = line.LastIndexOf("</Name>");
+						//string print = line.Substring(pFrom, pTo - pFrom);
+						Console.WriteLine(line);
+						if (line.IndexOf("</Results>") != -1){
+							Console.WriteLine("-----END------");
+							break;
+						}
+						if ((line.IndexOf("<Name>") != -1) && (line.IndexOf("<Name><![CDATA") == -1)) {
+							int pFrom = line.IndexOf("<Name>") + "<Name>".Length;
+							int pTo = line.LastIndexOf("</Name>");
+							string print = line.Substring(pFrom, pTo - pFrom);
+							//Console.WriteLine(print);
+						}
+						if (line.IndexOf("<ErrorText>") != -1){
+							//int pFrom = line.IndexOf("<ErrorText>") + "<ErrorText>".Length;
+							//int pTo = line.LastIndexOf("</ErrorText>");
+							//string print = line.Substring(pFrom, pTo - pFrom);
+							//Console.WriteLine(print);
+						}
+						if (line.IndexOf("<Description>") != -1){
+							int pFrom = line.IndexOf("<Description>") + "<Description>".Length;
+							int pTo = line.LastIndexOf("</Description>");
+							string print = line.Substring(pFrom, pTo - pFrom);
+							//Console.WriteLine(print);
+						}
+						if (line.IndexOf("<Result>") != -1){
+							int pFrom = line.IndexOf("<Result>") + "<Result>".Length;
+							int pTo = line.LastIndexOf("</Result>");
+							string print = line.Substring(pFrom, pTo - pFrom);
+							//Console.WriteLine(print);
+						}
+						
+					}
+					
+					Console.WriteLine("---------------------------------");
+					//update the last max offset
+					lastMaxOffset = reader.BaseStream.Position;
+					System.Threading.Thread.Sleep(100);
+				}
+			}
+		}
+		
+		public static void WaitForFile(string filePath, int timeout_min){
+			var timeout = DateTime.Now.Add(TimeSpan.FromMinutes(timeout_min));
+
+			while (!File.Exists(filePath))
+			{
+				if (DateTime.Now > timeout)
+				{
+					Console.WriteLine("Exit. File not found. Timeout(min):"+ timeout);
+					Environment.Exit(0);
+				}
+				Console.WriteLine("Waiting for : "+ filePath);
+				Thread.Sleep(TimeSpan.FromSeconds(10));
+			}
+			if(File.Exists(filePath)){
+				Console.WriteLine("File found : "+ filePath);
+			}
+		}
+		
+	} 
+} 
+
